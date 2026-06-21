@@ -8,6 +8,33 @@ retrieval, **Find Related Notes**, and an on‑device AI chat.
 
 ---
 
+## Features
+
+- **100% on‑device AI** — every model call (chat, embeddings, auto‑titling) runs locally through the QVAC SDK. No cloud, no telemetry; the app is fully functional offline after the one‑time model fetch.
+- **Note‑grounded chat ("Entropy AI")** — ask questions and get answers grounded in *your* notes, with **Source Citations** linking back to the exact notes used. When nothing relevant is found, the assistant tells you and won't pretend your notes say otherwise.
+- **Find Related Notes** — semantic, embedding‑based retrieval surfaces notes related to the one you're reading — no manual tagging required.
+- **Wikilinks (`@`)** — type `@` to link notes together; linked references render inline and feed the knowledge graph.
+- **Rich‑text editor** — headings, lists, checklists, tables, code blocks, quotes, and inline formatting. Type `/` for the command menu, `@` to link a note.
+- **AI auto‑titling** — notes are titled automatically from their content as you write.
+- **Knowledge graph view** — visualize how your notes connect.
+- **Attachments** — photos (camera or gallery), files, and audio voice notes attached directly to a note.
+- **Home, search & organization** — full‑text search and note cards grouped by date (Today, Yesterday, …), plus a Trash for safe deletion/restore.
+- **Local‑first storage** — everything is stored locally in SQLite. Dark mode throughout.
+
+---
+
+## Screenshots
+
+| Home | Rich editor + wikilinks | Ask your notes |
+| :---: | :---: | :---: |
+| ![Home — notes grouped by date](screenshots/01-home.png) | ![Note editor with `@` wikilinks and formatting toolbar](screenshots/02-editor-wikilinks.png) | ![Chat suggestions](screenshots/03-chat-suggestions.png) |
+| **Note‑grounded answer + citations** | **Find Related Notes** | **Citation guardrail** |
+| ![Answer grounded in your notes with source citations](screenshots/04-grounded-answer.png) | ![Semantically related notes](screenshots/05-related-notes.png) | ![No note context found — won't fabricate](screenshots/06-context-guardrail.png) |
+
+> Screens captured on a physical iPhone (iOS 17). The on‑device assistant is branded **Entropy AI** in‑app.
+
+---
+
 ## Repository layout
 
 | Path | What it is |
