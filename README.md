@@ -33,8 +33,8 @@ retrieval, **Find Related Notes**, and an on‑device AI chat.
 
 ```bash
 # 1. Clone
-git clone https://github.com/Cavinee/qvac.git
-cd qvac/Qvac2026
+git clone https://github.com/Cavinee/memoit.git
+cd memoit/Qvac2026
 
 # 2. Install JS dependencies (the QVAC SDK + bare worklet runtime)
 npm install
