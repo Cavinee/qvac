@@ -4652,6 +4652,179 @@ func noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap() throws 
     ], "semantic match should cite the Zephyr Note")
 }
 
+func semanticRetrievalFallsBackToGeneralWhenNonsenseQuerySharesNoTokensWithAnyNote() throws {
+    // With an embedding provider injected, a prompt whose tokens share no index
+    // slot with any note stays below the 0.25 cosine threshold → no seeds →
+    // empty context → noRetrievedContext(.noteGrounded). "Xqzzy" and "Vorpline"
+    // are coined words confirmed to hash to distinct dimensions that are absent
+    // from the Zephyr note embedding.
+    let runtime = RuntimeCoreHarness.makeInMemory(noteEmbeddingProvider: FakeEmbeddingProvider())
+    _ = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Zephyr Launch",
+        body: "Project Zephyr ships on March 14, 2027. The release codename is Bluefin.",
+        creationProvenance: .userCreated
+    ))))
+    _ = try runtime.execute(.recordLocalModelProfile(.init(profile: .init(
+        id: .init("model-a"),
+        name: "QVAC Tiny"
+    ))))
+    _ = try runtime.execute(.runIndexingJobs(.init()))
+
+    try expectRuntimeError(.noRetrievedContext(.noteGrounded)) {
+        _ = try runtime.answer(.init(prompt: "Xqzzy Vorpline"))
+    }
+}
+
+func semanticRetrievalRanksNotesMostSimilarFirstAndExcludesZeroSimilarityNote() throws {
+    // Three notes engineered with HIGH, MEDIUM, and ZERO cosine similarity to the
+    // query "quantum fermionic entanglement". Notes with zero similarity must be
+    // excluded (cosine 0.0 < 0.25 threshold); included notes must appear in
+    // descending cosine order (most-similar first).
+    //
+    // Note vectors: title + body tokens. Titles use unique made-up words that hash
+    // to dimensions absent from the query vector (confirmed collision-free):
+    //   "quasar"→374, "notes"→240, "pulsar"→438, "nebula"→12
+    //   "quantum"→216, "fermionic"→387, "entanglement"→407  — no overlap.
+    //
+    // High: body = "quantum fermionic entanglement phonon scattering"  (3 query dims)
+    // Med:  body = "quantum fermionic scattering phonon"               (2 query dims)
+    // Zero: body = "flintlock percussion gunpowder ignition eighteenth" (0 query dims)
+    let runtime = RuntimeCoreHarness.makeInMemory(noteEmbeddingProvider: FakeEmbeddingProvider())
+    let highNote = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Quasar Notes",
+        body: "quantum fermionic entanglement phonon scattering",
+        creationProvenance: .userCreated
+    ))))
+    let medNote = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Pulsar Notes",
+        body: "quantum fermionic scattering phonon",
+        creationProvenance: .userCreated
+    ))))
+    _ = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Nebula Notes",
+        body: "flintlock percussion gunpowder ignition eighteenth",
+        creationProvenance: .userCreated
+    ))))
+    _ = try runtime.execute(.recordLocalModelProfile(.init(profile: .init(
+        id: .init("model-a"),
+        name: "QVAC Tiny"
+    ))))
+    _ = try runtime.execute(.runIndexingJobs(.init()))
+
+    let result = try runtime.answer(.init(prompt: "quantum fermionic entanglement"))
+
+    // High note (3 shared query dimensions) must rank before medium note (2 shared),
+    // and the zero-similarity note must be excluded entirely.
+    try expect(result.mode == .noteGrounded, "semantic retrieval should produce a note-grounded answer")
+    try expect(result.citations == [
+        SourceCitation(noteID: highNote.id, noteFragmentID: "note-body"),
+        SourceCitation(noteID: medNote.id, noteFragmentID: "note-body"),
+    ], "high-similarity note must rank before medium-similarity; zero-similarity note must be excluded")
+}
+
+func semanticRetrievalCapsResultsAtTopKAndExcludesLeastSimilarNote() throws {
+    // Six notes are all above the 0.25 cosine threshold; the 6th (least similar)
+    // must be excluded because embeddingSearchTopK == 5. Each note body is a subset
+    // of the query tokens so similarity decreases monotonically:
+    //
+    // Query: "velvet quartz prismatic solvent lattice"
+    //   Aurus body: ...+ "ethereal" (extra non-query token lowers similarity slightly)
+    //   Boron body: all 5 query tokens (highest similarity)
+    //   Cerex body: 4 query tokens
+    //   Dexon body: 3 query tokens
+    //   Elbon body: 2 query tokens
+    //   Frull body: 1 query token  ← excluded as 6th
+    //
+    // Ranking order (descending cosine, confirmed empirically):
+    //   Boron > Aurus > Cerex > Dexon > Elbon (top 5) | Frull (excluded)
+    //
+    // Title tokens ("aurus", "boron", "cerex", "dexon", "elbon", "frull")
+    // hash to dimensions 381, 491, 74, 209, 113, 214 — all absent from the
+    // query vector (confirmed collision-free).
+    let runtime = RuntimeCoreHarness.makeInMemory(noteEmbeddingProvider: FakeEmbeddingProvider())
+    let noteAurus = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Aurus",
+        body: "velvet quartz prismatic solvent lattice ethereal",
+        creationProvenance: .userCreated
+    ))))
+    let noteBoron = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Boron",
+        body: "velvet quartz prismatic solvent lattice",
+        creationProvenance: .userCreated
+    ))))
+    let noteCerex = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Cerex",
+        body: "velvet quartz prismatic solvent",
+        creationProvenance: .userCreated
+    ))))
+    let noteDexon = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Dexon",
+        body: "velvet quartz prismatic",
+        creationProvenance: .userCreated
+    ))))
+    let noteElbon = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Elbon",
+        body: "velvet quartz",
+        creationProvenance: .userCreated
+    ))))
+    let noteFrull = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Frull",
+        body: "velvet lattice",
+        creationProvenance: .userCreated
+    ))))
+    _ = try runtime.execute(.recordLocalModelProfile(.init(profile: .init(
+        id: .init("model-a"),
+        name: "QVAC Tiny"
+    ))))
+    _ = try runtime.execute(.runIndexingJobs(.init()))
+
+    let result = try runtime.answer(.init(prompt: "velvet quartz prismatic solvent lattice"))
+
+    try expect(result.citations.count == 5, "top-K cap must limit results to 5 even when 6 notes are above threshold")
+    try expect(result.citations == [
+        SourceCitation(noteID: noteBoron.id, noteFragmentID: "note-body"),
+        SourceCitation(noteID: noteAurus.id, noteFragmentID: "note-body"),
+        SourceCitation(noteID: noteCerex.id, noteFragmentID: "note-body"),
+        SourceCitation(noteID: noteDexon.id, noteFragmentID: "note-body"),
+        SourceCitation(noteID: noteElbon.id, noteFragmentID: "note-body"),
+    ], "top-5 notes must be cited most-similar-first; Frull (least similar, 6th) must be excluded")
+    try expect(!result.citations.map(\.noteID).contains(noteFrull.id), "least-similar note (Frull) must be excluded by topK cap")
+}
+
+func withoutEmbeddingProviderRetrievalUsesLexicalPathUnchanged() throws {
+    // When no noteEmbeddingProvider is injected, retrievalSeeds() falls back to
+    // UserSearchIndex (lexical AND-match after stopword removal). This test proves
+    // the fallback is preserved: a content-term match succeeds (note-grounded), but
+    // the definitional question "What does Project Zephyr mean?" fails because
+    // "mean" does not appear in the note (demonstrating the brittleness that
+    // embeddings fix). Both sub-behaviors verified against the same runtime instance.
+    let runtime = RuntimeCoreHarness.makeInMemory()
+    let note = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Zephyr Launch",
+        body: "Project Zephyr ships on March 14, 2027. The release codename is Bluefin.",
+        creationProvenance: .userCreated
+    ))))
+    _ = try runtime.execute(.recordLocalModelProfile(.init(profile: .init(
+        id: .init("model-a"),
+        name: "QVAC Tiny"
+    ))))
+    _ = try runtime.execute(.runIndexingJobs(.init()))
+
+    // Lexical success: all content terms ("Project", "Zephyr", "Bluefin") appear
+    // in the note's searchable text (after lowercasing). Stopwords removed first.
+    let successResult = try runtime.answer(.init(prompt: "Project Zephyr Bluefin codename"))
+    try expect(successResult.mode == .noteGrounded, "lexical path must ground the answer in the matching note")
+    try expect(successResult.citations == [
+        SourceCitation(noteID: note.id, noteFragmentID: "note-body")
+    ], "lexical path must cite the note whose searchable text contains all content terms")
+
+    // Lexical failure: "mean" is not in the note, so AND-match returns nothing →
+    // noRetrievedContext. Confirms lexical brittleness is intact (not silently fixed).
+    try expectRuntimeError(.noRetrievedContext(.noteGrounded)) {
+        _ = try runtime.answer(.init(prompt: "What does Project Zephyr mean?"))
+    }
+}
+
 func noteGroundedAnswerFailsFastWithoutAIReadyDevice() throws {
     let runtime = RuntimeCoreHarness.makeInMemory()
     _ = try createdNote(from: runtime.execute(.createNote(.init(
@@ -7831,6 +8004,10 @@ let tests: [(String, () async throws -> Void)] = [
     ("aiAvailabilityCheckFailsFastUntilUsableLocalModelProfileExists", aiAvailabilityCheckFailsFastUntilUsableLocalModelProfileExists),
     ("answerRequestDefaultsToNoteGroundedAndReturnsSourceCitations", answerRequestDefaultsToNoteGroundedAndReturnsSourceCitations),
     ("noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap", noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap),
+    ("semanticRetrievalFallsBackToGeneralWhenNonsenseQuerySharesNoTokensWithAnyNote", semanticRetrievalFallsBackToGeneralWhenNonsenseQuerySharesNoTokensWithAnyNote),
+    ("semanticRetrievalRanksNotesMostSimilarFirstAndExcludesZeroSimilarityNote", semanticRetrievalRanksNotesMostSimilarFirstAndExcludesZeroSimilarityNote),
+    ("semanticRetrievalCapsResultsAtTopKAndExcludesLeastSimilarNote", semanticRetrievalCapsResultsAtTopKAndExcludesLeastSimilarNote),
+    ("withoutEmbeddingProviderRetrievalUsesLexicalPathUnchanged", withoutEmbeddingProviderRetrievalUsesLexicalPathUnchanged),
     ("noteGroundedAnswerFailsFastWithoutAIReadyDevice", noteGroundedAnswerFailsFastWithoutAIReadyDevice),
     ("noteGroundedAnswerRequiresFreshUserSearchIndex", noteGroundedAnswerRequiresFreshUserSearchIndex),
     ("noteGroundedRetrievalExpandsThroughExplicitLinks", noteGroundedRetrievalExpandsThroughExplicitLinks),
