@@ -49,6 +49,16 @@ static const int64_t ProductionEmbeddedQVACBareHostAnswerTimeoutSeconds = 600;
                                                                completion:completion];
 }
 
++ (void)sendEmbedRequest:(NSData *)requestData
+              completion:(void (^)(NSData *_Nullable data, NSError *_Nullable error))completion
+{
+  // Embeds go to the SAME persistent worklet as answers: the EmbeddingGemma model
+  // lives in that one isolate, and the host FIFO-serializes embed + answer pushes.
+  // Creating a second worklet/host would reintroduce the stale-isolate crash.
+  [[ProductionEmbeddedQVACBareHostAnswerWorkletHost shared] enqueueRequest:requestData
+                                                               completion:completion];
+}
+
 @end
 
 @interface ProductionEmbeddedQVACBareHostStatusRequest ()

@@ -12,6 +12,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)sendAnswerRequest:(NSData *)requestData
                completion:(void (^)(NSData *_Nullable data, NSError *_Nullable error))completion;
 
+/// Sends an embed request to the SAME persistent answer worklet (the one that owns
+/// the EmbeddingGemma model). Embed and answer share that single serialized worklet,
+/// so this must never spin up a second worklet. The completion fires on the main queue.
++ (void)sendEmbedRequest:(NSData *)requestData
+              completion:(void (^)(NSData *_Nullable data, NSError *_Nullable error))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END
