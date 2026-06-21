@@ -4627,6 +4627,31 @@ func answerRequestDefaultsToNoteGroundedAndReturnsSourceCitations() throws {
     try expect(result.answer == "Note-grounded Answer: basalt [Field Note]", "fake adapter should format deterministic note-grounded answers")
 }
 
+func noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap() throws {
+    // Semantic retrieval: an injected embedding provider must find the Note even
+    // when the question shares NO content term with it. "mean" never appears in
+    // the Note, so lexical AND-matching returns nothing and would fall back to
+    // General — embeddings must still ground the answer in the Zephyr Note.
+    let runtime = RuntimeCoreHarness.makeInMemory(noteEmbeddingProvider: FakeEmbeddingProvider())
+    let note = try createdNote(from: runtime.execute(.createNote(.init(
+        title: "Zephyr Launch",
+        body: "Project Zephyr ships on March 14, 2027. The release codename is Bluefin.",
+        creationProvenance: .userCreated
+    ))))
+    _ = try runtime.execute(.recordLocalModelProfile(.init(profile: .init(
+        id: .init("model-a"),
+        name: "QVAC Tiny"
+    ))))
+    _ = try runtime.execute(.runIndexingJobs(.init()))
+
+    let result = try runtime.answer(.init(prompt: "What does Project Zephyr mean?"))
+
+    try expect(result.mode == .noteGrounded, "semantic retrieval should match the Note despite zero content-term overlap")
+    try expect(result.citations == [
+        SourceCitation(noteID: note.id, noteFragmentID: "note-body")
+    ], "semantic match should cite the Zephyr Note")
+}
+
 func noteGroundedAnswerFailsFastWithoutAIReadyDevice() throws {
     let runtime = RuntimeCoreHarness.makeInMemory()
     _ = try createdNote(from: runtime.execute(.createNote(.init(
@@ -7805,6 +7830,7 @@ let tests: [(String, () async throws -> Void)] = [
     ("settingDefaultToNonDownloadedLocalModelProfileFailsAndLeavesDefaultOmitted", settingDefaultToNonDownloadedLocalModelProfileFailsAndLeavesDefaultOmitted),
     ("aiAvailabilityCheckFailsFastUntilUsableLocalModelProfileExists", aiAvailabilityCheckFailsFastUntilUsableLocalModelProfileExists),
     ("answerRequestDefaultsToNoteGroundedAndReturnsSourceCitations", answerRequestDefaultsToNoteGroundedAndReturnsSourceCitations),
+    ("noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap", noteGroundedRetrievalMatchesSemanticallyWhenNoContentTermsOverlap),
     ("noteGroundedAnswerFailsFastWithoutAIReadyDevice", noteGroundedAnswerFailsFastWithoutAIReadyDevice),
     ("noteGroundedAnswerRequiresFreshUserSearchIndex", noteGroundedAnswerRequiresFreshUserSearchIndex),
     ("noteGroundedRetrievalExpandsThroughExplicitLinks", noteGroundedRetrievalExpandsThroughExplicitLinks),

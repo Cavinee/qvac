@@ -5,6 +5,10 @@ public final class OnDeviceKnowledgeRuntime {
     private let graphStore: any GraphStore
     private let linkEngine: MarkdownLinkEngine
     private let userSearchIndex: UserSearchIndex
+    private let noteEmbeddingProvider: (any NoteEmbeddingProvider)?
+    private let noteEmbeddingIndex = NoteEmbeddingIndex()
+    private static let embeddingSearchTopK = 5
+    private static let embeddingSearchThreshold: Float = 0.25
     private let modelInventory: ModelInventoryStore
     private let aiRuntimeAdapter: any AIRuntimeAdapter
     private let aiSessionHistoryStore: AISessionHistoryStore
@@ -14,11 +18,12 @@ public final class OnDeviceKnowledgeRuntime {
     private var aiEditingPermissionsBySessionID: [AISessionID: AIEditingPermission] = [:]
     private var aiProgressState: AIProgressState = .idle
 
-    init(noteStore: NoteStore, graphStore: any GraphStore, linkEngine: MarkdownLinkEngine, userSearchIndex: UserSearchIndex, modelInventory: ModelInventoryStore, aiRuntimeAdapter: any AIRuntimeAdapter, aiSessionHistoryStore: AISessionHistoryStore, savedAIResponseStore: SavedAIResponseStore, aiOperationStore: AIOperationStore, clock: @escaping () -> Date = Date.init) {
+    init(noteStore: NoteStore, graphStore: any GraphStore, linkEngine: MarkdownLinkEngine, userSearchIndex: UserSearchIndex, noteEmbeddingProvider: (any NoteEmbeddingProvider)? = nil, modelInventory: ModelInventoryStore, aiRuntimeAdapter: any AIRuntimeAdapter, aiSessionHistoryStore: AISessionHistoryStore, savedAIResponseStore: SavedAIResponseStore, aiOperationStore: AIOperationStore, clock: @escaping () -> Date = Date.init) {
         self.noteStore = noteStore
         self.graphStore = graphStore
         self.linkEngine = linkEngine
         self.userSearchIndex = userSearchIndex
+        self.noteEmbeddingProvider = noteEmbeddingProvider
         self.modelInventory = modelInventory
         self.aiRuntimeAdapter = aiRuntimeAdapter
         self.aiSessionHistoryStore = aiSessionHistoryStore
@@ -106,7 +111,11 @@ public final class OnDeviceKnowledgeRuntime {
             userSearchIndex.markDirty()
             return .permanentlyDeletedNote(command.noteID)
         case .runIndexingJobs:
-            userSearchIndex.rebuild(from: try noteStore.listNotes())
+            let notes = try noteStore.listNotes()
+            userSearchIndex.rebuild(from: notes)
+            if let noteEmbeddingProvider {
+                try noteEmbeddingIndex.rebuild(from: notes, provider: noteEmbeddingProvider)
+            }
             return .ranIndexingJobs
         case .importMarkdownFile(let command):
             return .importedMarkdown(try importMarkdown(files: [command.file]))
@@ -1178,7 +1187,7 @@ public final class OnDeviceKnowledgeRuntime {
             context.append(note)
         }
 
-        let seedNoteIDs = userSearchIndex.search(prompt).filter { noteID in
+        let seedNoteIDs = try retrievalSeeds(for: prompt).filter { noteID in
             activeNotesByID[noteID]?.isPlaceholder == false
         }
         for noteID in seedNoteIDs {
@@ -1196,5 +1205,20 @@ public final class OnDeviceKnowledgeRuntime {
         }
 
         return context
+    }
+
+    /// Seed Notes for retrieval: semantic (embedding) search when a provider is
+    /// configured, otherwise the lexical UserSearchIndex. The fallback keeps
+    /// retrieval working before the embedding model/index is ready.
+    private func retrievalSeeds(for prompt: String) throws -> [NoteID] {
+        guard let noteEmbeddingProvider else {
+            return userSearchIndex.search(prompt)
+        }
+        let queryVector = try noteEmbeddingProvider.embed(prompt)
+        return noteEmbeddingIndex.search(
+            queryVector: queryVector,
+            topK: Self.embeddingSearchTopK,
+            threshold: Self.embeddingSearchThreshold
+        )
     }
 }

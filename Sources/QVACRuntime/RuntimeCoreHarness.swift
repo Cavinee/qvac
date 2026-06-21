@@ -1,12 +1,13 @@
 import Foundation
 
 public enum RuntimeCoreHarness {
-    public static func makeInMemory(aiRuntimeAdapter: any AIRuntimeAdapter = FakeAIRuntimeAdapter(), clock: @escaping () -> Date = Date.init) -> OnDeviceKnowledgeRuntime {
+    public static func makeInMemory(aiRuntimeAdapter: any AIRuntimeAdapter = FakeAIRuntimeAdapter(), noteEmbeddingProvider: (any NoteEmbeddingProvider)? = nil, clock: @escaping () -> Date = Date.init) -> OnDeviceKnowledgeRuntime {
         OnDeviceKnowledgeRuntime(
             noteStore: InMemoryNoteStore(clock: clock),
             graphStore: InMemoryGraphStore(),
             linkEngine: MarkdownLinkEngine(),
             userSearchIndex: UserSearchIndex(),
+            noteEmbeddingProvider: noteEmbeddingProvider,
             modelInventory: ModelInventoryStore(),
             aiRuntimeAdapter: aiRuntimeAdapter,
             aiSessionHistoryStore: AISessionHistoryStore(),
